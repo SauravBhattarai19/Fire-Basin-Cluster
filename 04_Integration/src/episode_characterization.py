@@ -573,9 +573,23 @@ class EpisodeCharacterization:
                                                   how='left')
         
         # Fill NaN values for watersheds with no fires
-        fire_cols = watershed_stats.columns
-        watershed_fire_stats[fire_cols] = watershed_fire_stats[fire_cols].fillna(0)
+        if 'centroid' in watershed_fire_stats.columns:
+            watershed_fire_stats['centroid_wkt'] = watershed_fire_stats['centroid'].to_wkt()
+            watershed_fire_stats = watershed_fire_stats.drop(columns=['centroid'])
+        
+        # Ensure only one geometry column remains
+        geom_cols = [col for col in watershed_fire_stats.columns 
+                    if isinstance(watershed_fire_stats[col].dtype, object) 
+                    and hasattr(watershed_fire_stats[col].iloc[0] if len(watershed_fire_stats) > 0 else None, 'geom_type')]
+        
+        if len(geom_cols) > 1:
+            # Keep the main geometry column, convert others to WKT
+            main_geom_col = 'geometry'
+            for col in geom_cols:
+                if col != main_geom_col:
+                    watershed_fire_stats[f'{col}_wkt'] = watershed_fire_stats[col].to_wkt()
+                    watershed_fire_stats = watershed_fire_stats.drop(columns=[col])
         
         self.logger.info(f"Aggregated to {len(watershed_stats)} watersheds with fires")
         
-        return watershed_fire_stats 
+        return watershed_fire_stats
