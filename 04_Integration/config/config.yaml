@@ -1,0 +1,114 @@
+# Fire Episode Clustering Configuration
+# ===========================================
+
+# Geographic bounds for testing/production
+study_area:
+  test_mode: true                        # Toggle between test and production
+  bounding_box: [-125, 32, -114, 42]     # [west, south, east, north] - California for testing
+  # production_bbox: [-125, 25, -66, 50]  # Full CONUS
+  output_epsg: 6933                      # World Cylindrical Equal Area projection
+
+# Data paths
+data:
+  fire_data_path: "../Json_files/fire_modis_us.json"
+  watershed_data_path: "../Json_files/huc12_conus.geojson"
+  output_base_dir: "outputs"
+
+# Quality filtering
+quality_control:
+  min_confidence: 70                     # Minimum confidence level (%)
+  valid_instruments: ["MODIS"]           # Valid instrument types
+  valid_satellites: ["Terra", "Aqua"]    # Valid satellites
+  remove_duplicates: true                # Remove spatial-temporal duplicates
+  duplicate_radius_m: 1000               # Radius for duplicate detection (meters)
+  duplicate_time_hours: 1                # Time window for duplicate detection
+
+# DBSCAN clustering parameters
+clustering:
+  spatial_eps_meters: 2000               # Maximum distance between points (meters)
+  temporal_eps_days: 3                   # Maximum time between detections (days)
+  min_samples: 2                         # Minimum points to form cluster
+  handle_day_night: "combined"           # Options: "combined", "separate", "weighted"
+  
+  # Advanced parameters
+  day_night_weight: 0.8                  # Weight factor for cross-day/night clustering
+  confidence_weighting: true             # Use confidence in distance calculation
+  frp_weighting: false                   # Use FRP in distance calculation
+  
+  # Parameter optimization ranges (for testing)
+  param_ranges:
+    spatial_eps: [1000, 2000, 3000, 5000]     # meters
+    temporal_eps: [1, 2, 3, 5, 7]              # days
+    min_samples: [2, 3, 5]                     # points
+
+# Performance settings
+processing:
+  max_cpu_cores: 48                      # 50% of 96 cores
+  chunk_size_mb: 1000                    # Memory chunk size
+  use_gpu_acceleration: true             # Enable GPU for spatial operations
+  gpu_device_id: 0                       # GPU device to use
+  spatial_index_type: "rtree"            # Spatial indexing method
+  
+  # Chunking strategy
+  temporal_chunk_days: 30                # Process data in monthly chunks
+  spatial_chunk_size: 5.0                # Degrees for spatial chunking
+  overlap_buffer: 0.1                    # Overlap between chunks (degrees)
+  
+  # Memory management
+  max_memory_gb: 64                      # Maximum memory usage
+  enable_disk_caching: true              # Use disk for intermediate results
+  cache_dir: "/tmp/fire_clustering"      # Temporary storage location
+
+# Episode characterization
+episode_metrics:
+  compute_spread_metrics: true           # Calculate spread rate and direction
+  compute_intensity_profiles: true       # Generate temporal intensity profiles
+  compute_shape_indices: true            # Calculate shape complexity metrics
+  compute_behavior_patterns: true        # Analyze day/night patterns
+  
+  # Dormancy detection
+  dormancy_threshold_days: 2             # Days without detection to consider dormant
+  rekindle_max_days: 7                   # Maximum gap to consider same episode
+
+# Output specifications
+output:
+  save_enhanced_points: false            # Save points with cluster IDs
+  save_episode_records: true             # Save episode summaries
+  save_watershed_stats: true             # Save watershed-level statistics
+  save_validation_report: true           # Generate quality assessment report
+  
+  # Export formats
+  export_formats: ["parquet", "geojson", "csv"]
+  compress_outputs: true                 # Compress output files
+  
+  # Validation settings
+  validation_sample_size: 1000           # Number of episodes to validate
+  generate_visualizations: true          # Create diagnostic plots
+  plot_sample_episodes: 50               # Number of episodes to plot
+
+# Logging and monitoring
+logging:
+  log_level: "INFO"                      # DEBUG, INFO, WARNING, ERROR
+  log_file: "fire_clustering.log"        # Log file location
+  enable_progress_bar: true              # Show progress during processing
+  report_interval_seconds: 60            # Resource usage reporting interval
+  enable_profiling: false                # Detailed performance profiling
+
+# Validation criteria
+validation:
+  min_episode_duration_hours: 1          # Minimum valid episode duration
+  max_episode_duration_days: 365         # Maximum valid episode duration
+  min_episode_area_km2: 0.01             # Minimum valid episode area
+  max_episode_spread_rate_kmh: 50       # Maximum realistic spread rate
+  
+  # Quality thresholds
+  min_spatial_coherence: 0.5             # Minimum spatial coherence score
+  min_temporal_consistency: 0.6          # Minimum temporal consistency score
+  min_data_completeness: 0.3             # Minimum data completeness score
+
+# Checkpoint and recovery
+checkpoint:
+  enable_checkpointing: true             # Save intermediate results
+  checkpoint_interval_minutes: 30        # Checkpoint frequency
+  auto_resume: true                      # Resume from last checkpoint on failure
+  max_checkpoint_age_days: 7             # Delete old checkpoints 

@@ -1,0 +1,40 @@
+# Core dependencies
+numpy>=1.21.0
+pandas>=1.3.0
+geopandas>=0.9.0
+shapely>=1.8.0
+pyproj>=3.2.0
+scikit-learn>=1.0.0
+scipy>=1.7.0
+
+# Geospatial
+fiona>=1.8.0
+rtree>=0.9.0
+
+# Data formats
+pyarrow>=5.0.0  # For parquet support
+openpyxl>=3.0.0  # For Excel support
+
+# Visualization
+matplotlib>=3.4.0
+seaborn>=0.11.0
+
+# Configuration
+PyYAML>=5.4.0
+
+# Performance monitoring
+psutil>=5.8.0
+tqdm>=4.62.0
+
+# Logging and utilities
+python-dateutil>=2.8.0
+
+# Optional GPU acceleration (install separately if GPU available)
+# cupy-cuda11x>=9.0.0  # Replace with appropriate CUDA version
+# cuml-cu11>=21.12.0  # RAPIDS ML library
+# cuspatial>=21.12.0  # RAPIDS spatial library
+# pynvml>=11.0.0  # NVIDIA management library
+
+# Optional for advanced features
+# dask[complete]>=2021.10.0  # For distributed computing
+# numba>=0.54.0  # For JIT compilation 

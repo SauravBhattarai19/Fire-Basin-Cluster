@@ -1,0 +1,112 @@
+# Data files
+*.json
+*.geojson
+*.csv
+*.tsv
+*.xlsx
+*.xls
+*.parquet
+*.h5
+*.hdf5
+*.nc
+*.tif
+*.tiff
+*.shp
+*.dbf
+*.prj
+*.shx
+
+# Specific data directories
+Json_files/
+output/
+outputs/
+
+# Log files
+*.log
+*.out
+*.err
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# PyCharm
+.idea/
+
+# VS Code
+.vscode/
+
+# Operating System
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+*~
+
+# Cache
+.cache/
+cache/
+
+# Test outputs
+test_run_*/
+checkpoints/
+episodes/
+logs/
+validation/
+visualizations/
+
+# Large binary files
+*.bin
+*.pkl
+*.pickle
+*.gz
+*.zip
+*.tar
+*.7z
+
+# GPU and system info
+GPU_STATUS.md
+
+# Specific to this project
+=12.0.0
+fire_clustering.log
