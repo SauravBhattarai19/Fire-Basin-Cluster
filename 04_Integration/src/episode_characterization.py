@@ -119,7 +119,7 @@ class EpisodeCharacterization:
         
         # Dormancy analysis
         if active_days > 1:
-            dates_sorted = pd.to_datetime(unique_dates).sort()
+            dates_sorted = pd.Series(pd.to_datetime(unique_dates)).sort_values()
             date_gaps = np.diff(dates_sorted) / np.timedelta64(1, 'D')
             dormancy_periods = (date_gaps > self.dormancy_threshold).sum()
             max_dormancy = date_gaps.max() if len(date_gaps) > 0 else 0
@@ -211,7 +211,7 @@ class EpisodeCharacterization:
                 float(min(bbox_lon)), float(min(bbox_lat)),
                 float(max(bbox_lon)), float(max(bbox_lat))
             ],
-            'area_km2': hull_area / 1e6,  # Convert from m² to km²
+            'areasqm': hull_area / 1e6,  # Convert from m² to km²
             'perimeter_km': bbox_width * 2 + bbox_height * 2 / 1000,  # Approximate
             'max_spread_km': max_distance / 1000,
             'shape_elongation': elongation,
@@ -483,7 +483,7 @@ class EpisodeCharacterization:
         episodes_df['is_valid'] = (
             (episodes_df['duration_hours'] >= validation_config['min_episode_duration_hours']) &
             (episodes_df['duration_days'] <= validation_config['max_episode_duration_days']) &
-            (episodes_df['area_km2'] >= validation_config['min_episode_area_km2']) &
+            (episodes_df['areasqm'] >= validation_config['min_episode_area_km2']) &
             (episodes_df['max_spread_rate_kmh'] <= validation_config['max_episode_spread_rate_kmh']) &
             (episodes_df['spatial_coherence_score'] >= validation_config['min_spatial_coherence']) &
             (episodes_df['data_completeness_score'] >= validation_config['min_data_completeness'])
@@ -535,10 +535,10 @@ class EpisodeCharacterization:
                                          how='inner', predicate='within')
         
         # Aggregate statistics
-        watershed_stats = episodes_in_watersheds.groupby('HUC12').agg({
+        watershed_stats = episodes_in_watersheds.groupby('huc12').agg({
             'episode_id': 'count',
             'total_energy_mwh': 'sum',
-            'area_km2': 'sum',
+            'areasqm': 'sum',
             'duration_days': ['mean', 'max', 'sum'],
             'peak_frp': 'max',
             'mean_frp': 'mean',
@@ -568,7 +568,7 @@ class EpisodeCharacterization:
         
         # Add to watershed GeoDataFrame
         watershed_fire_stats = watershed_gdf.merge(watershed_stats, 
-                                                  left_on='HUC12', 
+                                                  left_on='huc12', 
                                                   right_index=True, 
                                                   how='left')
         
