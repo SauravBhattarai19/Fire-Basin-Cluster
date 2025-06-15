@@ -4,7 +4,7 @@
 # Geographic bounds for testing/production
 study_area:
   test_mode: true                        # Toggle between test and production
-  bounding_box: [-125, 32, -114, 42]     # [west, south, east, north] - California for testing
+  bounding_box: [-125, 25, -66, 50]     # [west, south, east, north] - California for testing
   # production_bbox: [-125, 25, -66, 50]  # Full CONUS
   output_epsg: 6933                      # World Cylindrical Equal Area projection
 

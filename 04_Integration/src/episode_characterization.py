@@ -534,11 +534,24 @@ class EpisodeCharacterization:
         episodes_in_watersheds = gpd.sjoin(episodes_gdf, watershed_gdf, 
                                          how='inner', predicate='within')
         
-        # Aggregate statistics
+        # Calculate 95th percentile FRP for high severity threshold
+        frp_95th_percentile = episodes_df['peak_frp'].quantile(0.95)
+        self.logger.info(f"95th percentile FRP for high severity: {frp_95th_percentile:.1f} MW")
+        
+        # Create custom aggregation functions for threshold exceedance metrics
+        def count_area_threshold(series, watershed_area, threshold):
+            """Count episodes exceeding area threshold"""
+            return (series / watershed_area > threshold).sum()
+        
+        def count_high_severity(series, threshold):
+            """Count high severity episodes"""
+            return (series > threshold).sum()
+        
+        # Aggregate statistics - first do the basic aggregations
         watershed_stats = episodes_in_watersheds.groupby('huc12').agg({
             'episode_id': 'count',
             'total_energy_mwh': 'sum',
-            'areasqm': 'sum',
+            'areasqm': ['sum', 'max'],  # Added max for HSBF calculation
             'duration_days': ['mean', 'max', 'sum'],
             'peak_frp': 'max',
             'mean_frp': 'mean',
@@ -555,7 +568,8 @@ class EpisodeCharacterization:
         watershed_stats = watershed_stats.rename(columns={
             'episode_id_count': 'episode_count',
             'total_energy_mwh_sum': 'total_energy_mwh',
-            'area_km2_sum': 'total_burned_area_km2',
+            'areasqm_sum': 'total_burned_area_km2',
+            'areasqm_max': 'max_episode_area_km2',
             'duration_days_mean': 'mean_episode_duration_days',
             'duration_days_max': 'max_episode_duration_days',
             'duration_days_sum': 'total_fire_days',
@@ -566,13 +580,75 @@ class EpisodeCharacterization:
             'persistence_score_mean': 'mean_persistence'
         })
         
+        # Add threshold exceedance metrics
+        # For each watershed, calculate counts for area thresholds
+        thresholds = [0.10, 0.20, 0.30, 0.40, 0.50, 0.60, 0.70, 0.80, 0.90, 1.00]
+        
+        for threshold in thresholds:
+            threshold_pct = int(threshold * 100)
+            col_name = f'n_{threshold_pct}pct_burns'
+            
+            # Calculate for each watershed
+            threshold_counts = {}
+            for huc12 in episodes_in_watersheds['huc12'].unique():
+                # Get watershed area
+                watershed_area = watershed_gdf[watershed_gdf['huc12'] == huc12]['area_km2'].iloc[0]
+                # Get episodes in this watershed
+                episodes_in_ws = episodes_in_watersheds[episodes_in_watersheds['huc12'] == huc12]
+                # Count episodes exceeding threshold
+                count = (episodes_in_ws['areasqm'] / watershed_area > threshold).sum()
+                threshold_counts[huc12] = count
+            
+            # Add to watershed stats
+            watershed_stats[col_name] = pd.Series(threshold_counts)
+        
+        # Add high severity count
+        high_severity_counts = {}
+        for huc12 in episodes_in_watersheds['huc12'].unique():
+            episodes_in_ws = episodes_in_watersheds[episodes_in_watersheds['huc12'] == huc12]
+            count = (episodes_in_ws['peak_frp'] > frp_95th_percentile).sum()
+            high_severity_counts[huc12] = count
+        
+        watershed_stats['n_high_severity'] = pd.Series(high_severity_counts)
+        
         # Add to watershed GeoDataFrame
         watershed_fire_stats = watershed_gdf.merge(watershed_stats, 
                                                   left_on='huc12', 
                                                   right_index=True, 
                                                   how='left')
         
+        # Calculate HSBF (Hydrologically Significant Burn Fraction)
+        # HSBF = max(episode_area) / watershed_area
+        watershed_fire_stats['hsbf'] = (
+            watershed_fire_stats['max_episode_area_km2'] / watershed_fire_stats['area_km2']
+        )
+        
         # Fill NaN values for watersheds with no fires
+        fill_values = {
+            'episode_count': 0,
+            'total_energy_mwh': 0,
+            'total_burned_area_km2': 0,
+            'max_episode_area_km2': 0,
+            'mean_episode_duration_days': 0,
+            'max_episode_duration_days': 0,
+            'total_fire_days': 0,
+            'watershed_peak_frp': 0,
+            'watershed_mean_frp': 0,
+            'total_detections': 0,
+            'mean_day_activity': 0,
+            'mean_persistence': 0,
+            'hsbf': 0,
+            'n_high_severity': 0
+        }
+        
+        # Fill threshold exceedance columns
+        for threshold in [0.10, 0.20, 0.30, 0.40, 0.50, 0.60, 0.70, 0.80, 0.90, 1.00]:
+            threshold_pct = int(threshold * 100)
+            col_name = f'n_{threshold_pct}pct_burns'
+            fill_values[col_name] = 0
+        
+        watershed_fire_stats = watershed_fire_stats.fillna(fill_values)
+        
         if 'centroid' in watershed_fire_stats.columns:
             watershed_fire_stats['centroid_wkt'] = watershed_fire_stats['centroid'].to_wkt()
             watershed_fire_stats = watershed_fire_stats.drop(columns=['centroid'])
