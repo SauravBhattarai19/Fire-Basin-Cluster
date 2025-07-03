@@ -16,6 +16,8 @@ from datetime import datetime
 import warnings
 warnings.filterwarnings('ignore')
 
+os.environ["OGR_GEOJSON_MAX_OBJ_SIZE"] = "0"
+
 # Add src to path
 sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
 from utils import load_config

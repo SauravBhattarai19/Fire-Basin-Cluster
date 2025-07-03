@@ -25,7 +25,7 @@ quality_control:
 
 # DBSCAN clustering parameters
 clustering:
-  spatial_eps_meters: 2000               # Maximum distance between points (meters)
+  spatial_eps_meters: 1500               # Maximum distance between points (meters)
   temporal_eps_days: 3                   # Maximum time between detections (days)
   min_samples: 2                         # Minimum points to form cluster
   handle_day_night: "combined"           # Options: "combined", "separate", "weighted"

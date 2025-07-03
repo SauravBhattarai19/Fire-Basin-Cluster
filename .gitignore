@@ -20,6 +20,7 @@
 Json_files/
 output/
 outputs/
+docs/
 
 # Log files
 *.log

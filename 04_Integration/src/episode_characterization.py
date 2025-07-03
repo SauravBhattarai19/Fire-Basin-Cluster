@@ -2,6 +2,12 @@
 """
 Fire episode characterization module
 Generates comprehensive episode records from clustered fire detections
+
+IMPORTANT: This module correctly handles cross-watershed fire episodes by:
+1. Creating polygon geometries for episodes (not just centroids)
+2. Using spatial overlay to calculate actual intersection areas
+3. Assigning only the proportional area that falls within each watershed
+4. Ensuring HSBF values are physically meaningful (≤ 1.0)
 """
 
 import numpy as np
@@ -522,40 +528,32 @@ class EpisodeCharacterization:
         
         self.logger.info("Aggregating episodes to watersheds")
         
-        # Convert episodes to GeoDataFrame
-        geometry = [Point(row['centroid_lon'], row['centroid_lat']) 
-                   for _, row in episodes_df.iterrows()]
-        episodes_gdf = gpd.GeoDataFrame(episodes_df, geometry=geometry, crs='EPSG:4326')
+        # Create episode polygons from fire detections for proper spatial analysis
+        episodes_with_polygons = self._create_episode_polygons(episodes_df)
         
         # Reproject to match watersheds
-        episodes_gdf = episodes_gdf.to_crs(watershed_gdf.crs)
+        episodes_gdf = episodes_with_polygons.to_crs(watershed_gdf.crs)
         
-        # Spatial join
-        episodes_in_watersheds = gpd.sjoin(episodes_gdf, watershed_gdf, 
-                                         how='inner', predicate='within')
+        # Perform spatial overlay to get intersection areas
+        episodes_in_watersheds = self._calculate_watershed_intersections(episodes_gdf, watershed_gdf)
+        
+        if len(episodes_in_watersheds) == 0:
+            # Return empty watersheds with zero values
+            return self._create_empty_watershed_stats(watershed_gdf)
         
         # Calculate 95th percentile FRP for high severity threshold
         frp_95th_percentile = episodes_df['peak_frp'].quantile(0.95)
         self.logger.info(f"95th percentile FRP for high severity: {frp_95th_percentile:.1f} MW")
         
-        # Create custom aggregation functions for threshold exceedance metrics
-        def count_area_threshold(series, watershed_area, threshold):
-            """Count episodes exceeding area threshold"""
-            return (series / watershed_area > threshold).sum()
-        
-        def count_high_severity(series, threshold):
-            """Count high severity episodes"""
-            return (series > threshold).sum()
-        
-        # Aggregate statistics - first do the basic aggregations
+        # Aggregate statistics using the corrected intersection data
         watershed_stats = episodes_in_watersheds.groupby('huc12').agg({
             'episode_id': 'count',
-            'total_energy_mwh': 'sum',
-            'areasqm': ['sum', 'max'],  # Added max for HSBF calculation
-            'duration_days': ['mean', 'max', 'sum'],
-            'peak_frp': 'max',
-            'mean_frp': 'mean',
-            'detection_count': 'sum',
+            'watershed_total_energy_mwh': 'sum',
+            'watershed_areasqm': ['sum', 'max'],  # Use intersection areas
+            'watershed_duration_days': ['mean', 'max', 'sum'],
+            'watershed_peak_frp': 'max',
+            'watershed_mean_frp': 'mean',
+            'watershed_detection_count': 'sum',
             'day_night_ratio': 'mean',
             'persistence_score': 'mean'
         })
@@ -564,49 +562,47 @@ class EpisodeCharacterization:
         watershed_stats.columns = ['_'.join(col).strip() if col[1] else col[0] 
                                   for col in watershed_stats.columns]
         
-        # Rename columns
+        # Rename columns to reflect corrected calculations
         watershed_stats = watershed_stats.rename(columns={
             'episode_id_count': 'episode_count',
-            'total_energy_mwh_sum': 'total_energy_mwh',
-            'areasqm_sum': 'total_burned_area_km2',
-            'areasqm_max': 'max_episode_area_km2',
-            'duration_days_mean': 'mean_episode_duration_days',
-            'duration_days_max': 'max_episode_duration_days',
-            'duration_days_sum': 'total_fire_days',
-            'peak_frp_max': 'watershed_peak_frp',
-            'mean_frp_mean': 'watershed_mean_frp',
-            'detection_count_sum': 'total_detections',
+            'watershed_total_energy_mwh_sum': 'total_energy_mwh',
+            'watershed_areasqm_sum': 'total_burned_area_km2',
+            'watershed_areasqm_max': 'max_episode_area_km2',
+            'watershed_duration_days_mean': 'mean_episode_duration_days',
+            'watershed_duration_days_max': 'max_episode_duration_days',
+            'watershed_duration_days_sum': 'total_fire_days',
+            'watershed_peak_frp_max': 'watershed_peak_frp',
+            'watershed_mean_frp_mean': 'watershed_mean_frp',
+            'watershed_detection_count_sum': 'total_detections',
             'day_night_ratio_mean': 'mean_day_activity',
             'persistence_score_mean': 'mean_persistence'
         })
         
-        # Add threshold exceedance metrics
-        # For each watershed, calculate counts for area thresholds
+        # Add threshold exceedance metrics using corrected intersection areas
         thresholds = [0.10, 0.20, 0.30, 0.40, 0.50, 0.60, 0.70, 0.80, 0.90, 1.00]
         
         for threshold in thresholds:
             threshold_pct = int(threshold * 100)
             col_name = f'n_{threshold_pct}pct_burns'
             
-            # Calculate for each watershed
+            # Calculate for each watershed using intersection areas
             threshold_counts = {}
             for huc12 in episodes_in_watersheds['huc12'].unique():
                 # Get watershed area
                 watershed_area = watershed_gdf[watershed_gdf['huc12'] == huc12]['area_km2'].iloc[0]
-                # Get episodes in this watershed
+                # Get episodes in this watershed with their intersection areas
                 episodes_in_ws = episodes_in_watersheds[episodes_in_watersheds['huc12'] == huc12]
-                # Count episodes exceeding threshold
-                count = (episodes_in_ws['areasqm'] / watershed_area > threshold).sum()
+                # Count episodes where intersection area exceeds threshold
+                count = (episodes_in_ws['watershed_areasqm'] / watershed_area > threshold).sum()
                 threshold_counts[huc12] = count
             
-            # Add to watershed stats
             watershed_stats[col_name] = pd.Series(threshold_counts)
         
-        # Add high severity count
+        # Add high severity count using original peak FRP
         high_severity_counts = {}
         for huc12 in episodes_in_watersheds['huc12'].unique():
             episodes_in_ws = episodes_in_watersheds[episodes_in_watersheds['huc12'] == huc12]
-            count = (episodes_in_ws['peak_frp'] > frp_95th_percentile).sum()
+            count = (episodes_in_ws['watershed_peak_frp'] > frp_95th_percentile).sum()
             high_severity_counts[huc12] = count
         
         watershed_stats['n_high_severity'] = pd.Series(high_severity_counts)
@@ -617,11 +613,15 @@ class EpisodeCharacterization:
                                                   right_index=True, 
                                                   how='left')
         
-        # Calculate HSBF (Hydrologically Significant Burn Fraction)
-        # HSBF = max(episode_area) / watershed_area
+        # Calculate corrected HSBF (Hydrologically Significant Burn Fraction)
+        # HSBF = max(intersection_area) / watershed_area
+        # This now correctly uses only the area that actually burned within each watershed
         watershed_fire_stats['hsbf'] = (
             watershed_fire_stats['max_episode_area_km2'] / watershed_fire_stats['area_km2']
-        )
+        ).fillna(0)
+        
+        # Ensure HSBF doesn't exceed 1.0 (should not happen with corrected calculation)
+        watershed_fire_stats['hsbf'] = watershed_fire_stats['hsbf'].clip(upper=1.0)
         
         # Fill NaN values for watersheds with no fires
         fill_values = {
@@ -666,6 +666,129 @@ class EpisodeCharacterization:
                     watershed_fire_stats[f'{col}_wkt'] = watershed_fire_stats[col].to_wkt()
                     watershed_fire_stats = watershed_fire_stats.drop(columns=[col])
         
-        self.logger.info(f"Aggregated to {len(watershed_stats)} watersheds with fires")
+        # Log summary of corrected calculations
+        total_watersheds = len(watershed_fire_stats)
+        watersheds_with_fires = len(watershed_stats)
+        max_hsbf = watershed_fire_stats['hsbf'].max()
+        
+        self.logger.info(f"Aggregated to {watersheds_with_fires} watersheds with fires out of {total_watersheds} total")
+        self.logger.info(f"Maximum HSBF: {max_hsbf:.4f} (corrected for cross-watershed episodes)")
         
         return watershed_fire_stats
+    
+    def _create_episode_polygons(self, episodes_df):
+        """Create polygon geometries for fire episodes based on their bounding boxes"""
+        
+        self.logger.info("Creating episode polygon geometries")
+        
+        geometries = []
+        for _, episode in episodes_df.iterrows():
+            # Use bounding box to create polygon
+            bbox = episode['bounding_box']  # [min_lon, min_lat, max_lon, max_lat]
+            
+            # Create polygon from bounding box
+            polygon = Polygon([
+                (bbox[0], bbox[1]),  # SW corner
+                (bbox[2], bbox[1]),  # SE corner
+                (bbox[2], bbox[3]),  # NE corner
+                (bbox[0], bbox[3]),  # NW corner
+                (bbox[0], bbox[1])   # Close polygon
+            ])
+            geometries.append(polygon)
+        
+        # Create GeoDataFrame
+        episodes_gdf = gpd.GeoDataFrame(episodes_df, geometry=geometries, crs='EPSG:4326')
+        
+        return episodes_gdf
+    
+    def _calculate_watershed_intersections(self, episodes_gdf, watershed_gdf):
+        """Calculate proper intersection areas between episodes and watersheds"""
+        
+        self.logger.info("Calculating episode-watershed intersections")
+        
+        # Perform spatial overlay to get intersections
+        intersections = gpd.overlay(episodes_gdf, watershed_gdf, how='intersection')
+        
+        if len(intersections) == 0:
+            self.logger.warning("No episode-watershed intersections found")
+            return pd.DataFrame()
+        
+        # Calculate intersection areas in km²
+        intersections['intersection_area_km2'] = intersections.geometry.area / 1e6
+        
+        # Calculate the proportion of original episode area in this watershed
+        intersections['area_proportion'] = (
+            intersections['intersection_area_km2'] / intersections['areasqm']
+        ).fillna(0)
+        
+        # Adjust episode metrics based on area proportion
+        # For area-dependent metrics, scale by proportion
+        area_dependent_metrics = [
+            'total_energy_mwh', 'detection_count'
+        ]
+        
+        for metric in area_dependent_metrics:
+            if metric in intersections.columns:
+                intersections[f'watershed_{metric}'] = (
+                    intersections[metric] * intersections['area_proportion']
+                )
+        
+        # For area metrics, use the intersection area
+        intersections['watershed_areasqm'] = intersections['intersection_area_km2']
+        
+        # For intensity metrics (rates, peaks), keep original values
+        # as they represent properties at specific locations
+        intensity_metrics = [
+            'peak_frp', 'mean_frp', 'peak_brightness', 'mean_brightness',
+            'confidence_weighted_frp'
+        ]
+        
+        for metric in intensity_metrics:
+            if metric in intersections.columns:
+                intersections[f'watershed_{metric}'] = intersections[metric]
+        
+        # For duration and temporal metrics, keep original values
+        temporal_metrics = [
+            'duration_hours', 'duration_days', 'active_days',
+            'mean_daily_detections', 'max_daily_detections'
+        ]
+        
+        for metric in temporal_metrics:
+            if metric in intersections.columns:
+                intersections[f'watershed_{metric}'] = intersections[metric]
+        
+        self.logger.info(f"Found {len(intersections)} episode-watershed intersections")
+        
+        return intersections
+    
+    def _create_empty_watershed_stats(self, watershed_gdf):
+        """Create empty watershed statistics when no fires are found"""
+        
+        fill_values = {
+            'episode_count': 0,
+            'total_energy_mwh': 0,
+            'total_burned_area_km2': 0,
+            'max_episode_area_km2': 0,
+            'mean_episode_duration_days': 0,
+            'max_episode_duration_days': 0,
+            'total_fire_days': 0,
+            'watershed_peak_frp': 0,
+            'watershed_mean_frp': 0,
+            'total_detections': 0,
+            'mean_day_activity': 0,
+            'mean_persistence': 0,
+            'hsbf': 0,
+            'n_high_severity': 0
+        }
+        
+        # Add threshold exceedance columns
+        for threshold in [0.10, 0.20, 0.30, 0.40, 0.50, 0.60, 0.70, 0.80, 0.90, 1.00]:
+            threshold_pct = int(threshold * 100)
+            col_name = f'n_{threshold_pct}pct_burns'
+            fill_values[col_name] = 0
+        
+        # Add fill values to watershed GeoDataFrame
+        for col, val in fill_values.items():
+            watershed_gdf[col] = val
+        
+        return watershed_gdf
