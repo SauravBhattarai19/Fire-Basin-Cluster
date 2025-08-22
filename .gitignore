@@ -22,6 +22,8 @@ output/
 outputs/
 outputs_fixed/
 docs/
+05_Clustering_Fixed/
+06_Ecological_Context/
 
 # Log files
 *.log
